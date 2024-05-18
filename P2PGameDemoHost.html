@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <script src="js/peerjs.min.js"></script>
+    <script src="js/fn.js"></script>
+    <!--script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script-->
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+</head>
+<body>
+    <!-- Host Setting -->
+    <div id="liveSetting">
+        <img id="liveCover">
+        <div style="height: 100%; width: 30%; margin-top: 2%;">
+            <input type="text" id="LiveTitle" class="liveInput" placeholder="Room Title"><br />
+            <textarea id="LiveSummary" rows="5" cols="33" placeholder="Input your Summary there..."></textarea><br />
+        </div>
+        <div style="height: 100%; width: 30%; margin-top: 2%;">
+            <input type="text" id="LiveCoverURL" class="liveInput" placeholder="URL of img served as Cover"><br />
+            <input id="LiveCoverInput" type="file" onchange="liveCoverInput()">Upload Local Image<br/><br/>
+            <button onclick="peer.disconnect()">Lock the room(can not restore!)</button>
+            <button onclick="peer.reconnect()">reconnect with original Id</button>
+        </div>
+        <button id="closeLiveMenu" class="actionButton" onclick="showLive()">Close</button>
+        <button id="modify" class="actionButton" onclick="modify()">modify</button>
+    </div>
+    <!-- Detail of Room -->
+    <div id="openRoomInfo">
+        <img id="roomCover" src="">
+        <div id="roomText">
+            <div id="roomTitle"></div>
+            <div id="roomSummary"></div>
+            <div id="nodeInfo">
+                <div id="stable">
+                    <button id="hostBlock" onclick="echoNodesMap(nodesMap[9], 0, nodesMap[7], 0)">me</button>
+                    <button id="refreshMap" onclick="refreshMap(0)">Refresh</button>
+                </div>
+                <div id="block0"></div>
+                <div id="block1"></div>
+            </div>
+        </div>
+        <button id="closeInfo" class="actionButton" onclick="openRoomInfo()">Close</button>
+    </div>
+
+    <!-- ID interaction -->
+    <div class="container">
+        <div class="box">
+            <!-- Receiver -->
+            <div style="font-weight: bold;">Host
+                <button id="refreshButton" onclick="refreshMap()">Refresh</button>
+                <button id="openRoomInfoButton" onclick="openRoomInfo()">Room Info</button>
+                <button type="button" id="roomSetting" onclick="showLive()">Room Setting</button>
+                <div id="myid" style="font-weight: bold;">Connecting to PeerServer...</div><br />
+                </div>
+        </div>
+        <div class="box">
+            <input type="checkbox" id="ifAutoReconnect" checked="checked">Automatic Reconnection<br />
+            <div id="status" style="font-weight: bold;">Status: Waiting to Connecting to PeerServer...</div>
+        </div>
+        <div class="custome">
+            <div>Custome Name<input type="text" id="name" placeholder="Input your name here..." /></div><br />
+            <div id="sumOfRoom">Audiences: 0</div><br />
+            <input type="checkbox" id="ifAutoClean">Auto-clean Msgs[max to 100]<br />
+        </div>
+    </div>
+    <!-- Live interaction-->
+    <div class="videoBox" style="background-color: gray;">
+        <button onclick="summon(unitsNum, lifeVelue, magicVelue, powerVelue, basicobjectshape)">summon</button><br />
+    </div>
+    <!-- Message box -->
+    <div class="chatContainer">
+        <div class="chatBox" id="message" onmouseover = "autoScrollStop()" onmouseout="autoScroll()"></div>
+        <div class="sendInput">
+            <!-- Send box -->
+            <input type="text" id="sendMessageBox" placeholder="Input message here..." autofocus="true" />
+            <button type="button" id="sendButton" onclick="sendMsg()">Send</button>
+            <input id="msgImgInput" type="file" onchange="sendImg()"><br />
+        </div>
+    </div>
+
+    <script>
+        var conn = null;
+        var mediaOpen = null;
+        var openInfoTimes = 0;
+        var openLiveTimes = 0;
+        let parent = null;       
+        let root = null;
+        let ifAutoScroll = true;
+        let localStream = null;
+        let remoteStream = null;
+        let deliverId = null;
+        let ifHitAim = null;
+        let lastAimId = null;
+        let layers = [0];
+        let lastLayerNumber = null;
+        let audiences = new Array();
+        let audienceIds = new Array();
+        let conns = new Array();
+        let connIds = new Array();
+        let nodesMap = new Array();     // init later
+        let childNodes = new Array();
+        let params = new URLSearchParams(document.location.search.substring(1));
+        let urlInfo = [params.get("rootId"), params.get("title"), params.get("summary"), params.get("coverURL")]
+        const LiveTitle = document.getElementById("LiveTitle");
+        const LiveSummary = document.getElementById("LiveSummary");
+        const LiveCoverURL= document.getElementById("LiveCoverURL");
+        const MyName = document.getElementById("name");
+
+        // For game
+        let gameMap = undefined;
+        let chessmans = [];
+        var unitsNum = 0;
+
+        var lifeValue,magicValue,powerValue,shape,camp,Geogrid,Geogridshape,Positonx,Positony,obPosx,obPosy = null;
+
+        let Geogridobject=[shape,Geogrid,Positonx,Positony];
+        Geogridshape
+        ;//地面样子
+        Geogrid =1 //地格类型 0不可行走的地格 1可行走的地格
+        Positonx=0;
+        Positony=0;
+
+        //单位属性
+        let basicobject=[lifeValue , magicValue,powerValue,basicobjectshape,camp,obPosx,obPosy];
+        lifeValue = 10; //生命值
+        magicValue = 2; //魔力值
+        powerValue = 2; //力量值
+        var basicobjectshape = "data:image/png;base64,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"
+        ;//形状
+        camp= 1; //阵营 0玩家 1中立 2敌对
+        obPosx = 0;
+        obPosy = 0;
+
+        function move(e){
+            console.log(e.keyCode);
+            var j=document.getElementById("0").style.top;
+            var k=document.getElementById("0").style.right;
+            j=parseInt(j.substr(0,j.length-2));
+            k=parseInt(k.substr(0,k.length-2));
+            switch (e.keyCode){
+                case 87: //上
+                    document.getElementById("0").style.top = (j-20)+"px";
+                // obPosx--;
+                break;
+                case 83: //下
+                    document.getElementById("0").style.top = (j+20)+"px";
+                // obPosx++
+                break;
+                case 65:  //左
+                    document.getElementById("0").style.right = (k+20)+"px";
+                // obPosy++
+                break;
+                case 68:  //右
+                    document.getElementById("0").style.right = (k-20)+"px";
+                // obPosy--
+                break;
+                default:
+            }
+        }
+        
+        var units = new Array();
+        summon(0, lifeValue, magicValue, powerValue, 0, basicobjectshape);
+        document.onkeydown = function(event){move(event)};
+        
+        document.getElementById("0").style.top = "0px";
+        document.getElementById("0").style.right = "0px";
+
+        for(var i = 0; i< 300; i++){
+            document.getElementsByClassName("videoBox")[0].innerHTML = document.getElementsByClassName("videoBox")[0].innerHTML + "<span><div id=\""+i+"\"style=\" border:1px solid red; height: 19px; width: 19px; display:inline-block\"></span>";
+        }
+        function summon(id, lifeValue, magicValue, powerValue, camp, basicobjectshape){
+            units.push([id, lifeValue, magicValue, powerValue, camp]);
+            document.getElementsByClassName("videoBox")[0].innerHTML = document.getElementsByClassName("videoBox")[0].innerHTML + "<img id=\""+id+"\" style=\" top:0px; position: relative; \" src=\""+ basicobjectshape +"\">";
+            unitsNum++;
+        }
+
+        // Listen for the event when a Peer connection is successfully opened
+        // *Explanation: The provided code snippet is using the Peer.js library to establish a Peer connection. The peer.on('open', ...) code block is listening for the 'open' event, which is triggered when the Peer connection is successfully opened.
+        peer.on('open', (id) => {
+            if (LiveTitle.value || LiveSummary.innerHTML || LiveCoverURL.value){
+                nodesMap = [ 1, 1, 0, [1, chessmans], LiveTitle.value, LiveSummary.innerHTML, LiveCoverURL.value, id, getMyName(), childNodes, urlInfo[0]];
+            } else {
+                childNodes = [ 1, 1, 0, [1, chessmans], id, getMyName(), []];
+                nodesMap = [ 1, 1, 0, [1, chessmans], urlInfo[1], urlInfo[2], urlInfo[3], id, getMyName(), childNodes, urlInfo[0]];
+            }
+            console.log(id);
+            document.getElementById("myid").innerHTML = "Your ID:<br/>" + id;
+            document.getElementById("status").innerHTML="Status: Connecting to Root Node...";
+            if(urlInfo[0]){
+                tryConnect(3, urlInfo[0], false, false);
+            } else {
+                document.getElementById("status").innerHTML="Root Node here now(private)";
+            }
+        });
+
+        // When a new connection request is received, this code creates a data channel and sends the local or remote stream (if available) and text messages.
+        peer.on('connection', (openPort) => {
+            connIds.push(openPort.peer);
+            conns.push(openPort);
+            conn = openPort;
+
+            conn.on('open', () => {
+                // for guest in index
+                var sendNodesMap = nodesMap;
+                sendNodesMap[2] = -1;
+                conn.send(sendNodesMap);
+                conn.send(gameMap);
+            });
+            
+            // Receive the text: Host <-- Guest
+            conn.on('data', (data) => {
+                // data[0]:
+                //  0: msg
+                //  1: nodeInfo or indexRoomInfo 
+                //  2: roomInfoModfied
+                //  3: for reconnect: Remind the child node to replace the parent node
+                //  4: for refresh: apply to the new media Stream for daliver to child
+                switch (data[0]) {
+                    case 0:
+                        console.log('Received data:', data);
+                        deliverId = data[1];
+                        data[1] = peer.id;  // make sure msg[2] keep last id of deliver
+                        
+                        // if ( liveSend(data) > 0 ) {
+                        //     console.log("Msg delivered successfully: " + data);
+                        // }else{console.log('Msg delivered failed');}
+
+                        liveSend(data);
+                        if(root){
+                            if(root.open){
+                                root.send(data);
+                            }
+                        }
+                        
+                        appearMsg(data);
+                        break;
+                    case 1:
+                        if ( ! audienceIds.includes(data[4])){
+                            var aimPosition = connIds.indexOf(data[4]);
+                            audienceIds.push(connIds[aimPosition]);
+                            audiences.push(conns[aimPosition]);
+
+                            console.log("Msg Connected to: " + data[4]);
+                        }
+                        recorder(data);
+                        break;
+                    case 2:
+                        if(data[1] && confirm(data[2]+"("+ data[1] +") ask for your media stream")){
+                            if(localStream){
+                                peer.call(data[1], localStream);
+                            } else if(remoteStream){
+                                peer.call(data[1], remoteStream);
+                            } else {
+                                document.getElementById('streamSourceMenuClose').innerHTML="Submit";
+                                streamSourceMenu();
+                                document.getElementById('streamSourceMenuClose').addEventListener('click', () => {
+                                    peer.call(data[1], localStream);
+                                    document.getElementById('streamSourceMenuClose').innerHTML="Close";
+                                
+                                });
+                            }
+                        }
+                        break;
+                    default:
+                        console.log("unknown data: " + data);
+                }
+            });
+
+            conn.on('close', () => {
+                for (var i = 0; i< conns.length; i++){
+                    if(conns[i]){
+                        if (conns[i].open){
+                            continue;
+                        }else{
+                            var disconnectedGuest = connIds.indexOf(conns[i].peer);   // locate old data
+                            if (disconnectedGuest !== -1){
+                            
+                                var disconnectedAudience = audienceIds.indexOf(conns[i].peer);
+                                if (disconnectedAudience !== -1){
+                                    console.log("Disconnected and deleted: " + audienceIds[disconnectedAudience]);     //DEBUG
+                                    audiences.splice(disconnectedAudience, 1);
+                                    audienceIds.splice(disconnectedAudience, 1);
+                                
+                                    var sameId = childNodes.indexOf(conns[i].peer);
+                                    if(sameId !== -1){
+                                        childNodes.splice(sameId, 3);     // remove disconnected audiences
+                                        nodesMap[2] = audienceIds.length;
+                                        nodesMap[3] = getRoomIds();
+                                        // faster but problem fn:
+                                        // var removeIdPosition = nodesMap[3].indexOf(conns[i].peer);
+                                        // if(removeIdPosition !== -1){
+                                        //     nodesMap[3].splice(removeIdPosition, 1);
+                                        // }
+                                    }
+                                    // child nodes of host closed the connection
+                                    console.log("nodesMap update after somebody closed")    // DEBUG
+                                    liveSend(nodesMap);
+                                    if(root){
+                                        if(root.open){
+                                            root.send(nodesMap);
+                                        }
+                                    }
+                                }
+                                // console.log("Disconnected and deleted: " + conns[i].peer);     //DEBUG
+                                conns.splice(disconnectedGuest, 1);
+                                connIds.splice(disconnectedGuest, 1);
+                            }
+                        }
+                    }else{break;}
+                }
+            });
+        });
+        
+        // autoScroll the scrollbar
+        function autoScroll(){ ifAutoScroll = true;}
+        function autoScrollStop(){ ifAutoScroll = false;}
+
+        // Listen for press enter in message box
+        document.getElementById("sendMessageBox").addEventListener('keypress', enter);
+        function enter(e) {
+            var event = e && window.event;
+            if (event.which && event.keyCode == '13'){
+                document.getElementById("sendButton").click();
+            }
+        }
+
+        function showLive() {       // if usr want to live
+            if(openLiveTimes==0){
+                openLiveTimes++;
+                document.getElementById('liveSetting').style.height = "25%";
+                LiveTitle.value = nodesMap[4];
+                LiveSummary.innerHTML = nodesMap[5];
+                LiveCoverURL.value = nodesMap[6];
+            }else{
+                openLiveTimes=0;
+                document.getElementById('liveSetting').style.height = "0px";
+            }
+        }
+
+        function modify(){
+            nodesMap[4] = LiveTitle.value;   // nodesMap update
+            nodesMap[5] = LiveSummary.innerHTML;
+            if(liveCoverBase64){
+                nodesMap[6] = liveCoverBase64;
+            } else {
+                nodesMap[6] = LiveCoverURL.value;
+            }
+            liveSend(nodesMap);
+            if(root){
+                if(root.open){
+                    root.send(nodesMap);
+                }
+            }
+        }
+        
+        function openRoomInfo() {       // top menu for showing the detail of room
+            if(openInfoTimes==0){
+                openInfoTimes++;
+                document.getElementById('openRoomInfo').style.height = "25%";
+                refreshMap(0);
+            }else{
+                openInfoTimes=0;
+                document.getElementById('openRoomInfo').style.height = "0px";
+            }
+        }
+
+        MyName.addEventListener(
+            "focusout",
+            () => {
+                if (MyName.value != nodesMap[8] && MyName.value){
+                    nodesMap[8] = MyName.value;
+                    childNodes[5] = MyName.value;
+                    liveSend(nodesMap);
+                    if(root){
+                        if(root.open){
+                            root.send(nodesMap);
+                        }
+                    }
+                }
+            },
+            true,
+        );
+
+        function recorder(data){
+            var sameId = childNodes.indexOf(data[4]);   // locate old data
+            console.log('Info of nodes updated:', data);
+            // var idTemp = Object.assign({}, audienceIds);     // make audiencesPeers value stable
+            if(sameId === -1){
+                childNodes.push(data[4]);
+                childNodes.push(data[5]);
+                childNodes.push(data);
+            } else {
+                childNodes[ sameId + 1 ] = data[5];
+                childNodes[ sameId + 2 ] = data;      // replace old data
+            }
+            // [0] => format, [1] => if from Root of room, [2] => numbers of child nodes from parent node
+            nodesMap = [ 1, 1, audienceIds.length, getRoomIds(), LiveTitle.value, LiveSummary.value, LiveCoverURL.value, peer.id, getMyName(), childNodes, urlInfo[0]];  //record this node's info
+            if(root){
+                if(root.open){
+                    root.send(nodesMap);
+                }
+            }
+            liveSend(nodesMap);
+            document.getElementById("sumOfRoom").innerHTML = "Audiences: "+ nodesMap[3].length;
+        }
+
+        // destroy connection when someone closed the web
+        window.addEventListener("beforeunload", (event) => {
+            if(audiences[0]){
+                for(var i=0; i<audiences.length; i++){
+                    audiences[i].send([5]);
+                    audiences[i].close();
+                }
+            }
+            root.close();
+            // event.preventDefault();
+        });
+
+    </script>
+</body>
+</html>
